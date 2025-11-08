@@ -1,0 +1,141 @@
+# ============================================
+# Uruhushya Software - Git Ignore File
+# IMPORTANT: This prevents sensitive data from being committed
+# ============================================
+
+# ============================================
+# CONFIGURATION FILES (NEVER COMMIT THESE!)
+# ============================================
+config/config.php
+.env
+.env.local
+.env.production
+
+# ============================================
+# UPLOADED FILES (May contain sensitive data)
+# ============================================
+public/uploads/*
+!public/uploads/.gitkeep
+public/assets/images/users/*
+!public/assets/images/users/.gitkeep
+
+# User uploaded documents
+public/uploads/school-docs/*
+public/uploads/agent-docs/*
+public/uploads/student-ids/*
+
+# Generated certificates
+public/certificates/*
+!public/certificates/.gitkeep
+
+# ============================================
+# COMPOSER & DEPENDENCIES
+# ============================================
+/vendor/
+composer.phar
+composer.lock
+
+# ============================================
+# LOGS & CACHE
+# ============================================
+*.log
+error_log
+debug.log
+/logs/*
+!logs/.gitkeep
+/cache/*
+!cache/.gitkeep
+/tmp/*
+!tmp/.gitkeep
+
+# ============================================
+# OPERATING SYSTEM FILES
+# ============================================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.directory
+
+# ============================================
+# IDE & EDITOR FILES
+# ============================================
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# PhpStorm / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# NetBeans
+nbproject/
+nbbuild/
+dist/
+nbdist/
+
+# Eclipse
+.project
+.buildpath
+.settings/
+
+# Atom
+.atom/
+
+# ============================================
+# TEMPORARY FILES
+# ============================================
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.old
+*~
+
+# ============================================
+# BACKUP FILES
+# ============================================
+*.sql.gz
+*.sql.zip
+backup/
+backups/
+
+# ============================================
+# NODE MODULES (if using npm)
+# ============================================
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# ============================================
+# PHP SPECIFIC
+# ============================================
+*.cache
+.phpunit.result.cache
+
+# ============================================
+# SESSION & RUNTIME
+# ============================================
+/sessions/*
+!sessions/.gitkeep

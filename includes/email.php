@@ -16,7 +16,7 @@
  * @param array $variables Variables to replace in template
  * @return array ['success' => bool, 'message' => string]
  */
-function send_template_email($template_name, $recipient_email, $language, $variables = []) {
+function send_template_email($template_name, $recipient_email, $language, $variables = [], $user_id = null) {
     // Get template from database
     $sql = "SELECT * FROM email_templates WHERE template_name = ? AND status = 'active' LIMIT 1";
     $template = db_fetch($sql, [$template_name]);
@@ -39,9 +39,9 @@ function send_template_email($template_name, $recipient_email, $language, $varia
     // Send email
     $result = send_email($recipient_email, $subject, $body);
     
-    // Log notification
+    // Log notification with user_id
     log_notification(
-        null,
+        $user_id,              // ← Make sure this line is here
         'email',
         $recipient_email,
         $subject,
@@ -53,6 +53,14 @@ function send_template_email($template_name, $recipient_email, $language, $varia
     return $result;
 }
 
+/**
+ * Send email (raw)
+ * 
+ * @param string $to Recipient email
+ * @param string $subject Email subject
+ * @param string $message Email body
+ * @return array ['success' => bool, 'message' => string]
+ */
 /**
  * Send email (raw)
  * 
@@ -78,27 +86,45 @@ function send_email($to, $subject, $message) {
     
     // For development, we'll just log the email instead of sending
     if (ENVIRONMENT === 'development') {
-        // In development, log email to file for testing
+        // Create logs directory if it doesn't exist
+        $log_dir = BASE_PATH . '/logs';
+        
+        // Check if directory exists, if not create it
+        if (!file_exists($log_dir)) {
+            mkdir($log_dir, 0777, true);
+            chmod($log_dir, 0777);
+        }
+        
+        // Prepare log message
         $log_message = "======================\n";
+        $log_message .= "DATE: " . date('Y-m-d H:i:s') . "\n";
         $log_message .= "TO: $to\n";
         $log_message .= "SUBJECT: $subject\n";
         $log_message .= "MESSAGE:\n$message\n";
         $log_message .= "======================\n\n";
         
-        // Create logs directory if it doesn't exist
-        if (!file_exists(BASE_PATH . '/logs')) {
-            mkdir(BASE_PATH . '/logs', 0755, true);
+        // Log file path
+        $log_file = $log_dir . '/emails.log';
+        
+        // Try to write to file
+        $write_result = file_put_contents($log_file, $log_message, FILE_APPEND);
+        
+        if ($write_result === false) {
+            // Failed to write - return error with details
+            return [
+                'success' => false,
+                'message' => 'Failed to write email log to: ' . $log_file . ' (Check folder permissions)'
+            ];
         }
         
-        file_put_contents(BASE_PATH . '/logs/emails.log', $log_message, FILE_APPEND);
-        
+        // Success
         return [
             'success' => true,
-            'message' => 'Email logged (development mode)'
+            'message' => 'Email logged successfully to: ' . $log_file . ' (' . $write_result . ' bytes written)'
         ];
     }
     
-    // Send email using PHP mail() function
+    // Send email using PHP mail() function (production mode)
     $success = mail($to, $subject, $message, implode("\r\n", $headers));
     
     return [
