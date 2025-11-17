@@ -241,6 +241,16 @@ $page_title = $lang === 'english' ? 'Admin Dashboard' : 'Dashboard ya Admin';
                                 </span>
                             <?php endif; ?>
                         </a>
+                        <li class="nav-item">
+                        <a class="nav-link" href="applications.php">
+                            <i class="fas fa-inbox"></i> questions.php
+                        </a>
+                        <li class="nav-item">
+                        <a class="nav-link" href="applications.php">
+                            <i class="fas fa-inbox"></i> payments.php
+                        </a>
+                    </li>
+                    </li>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="content.php">

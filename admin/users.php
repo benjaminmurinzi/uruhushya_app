@@ -382,6 +382,11 @@ $role_counts = [
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="applications.php">
+                            <i class="fas fa-inbox"></i> payments.php
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="content.php">
                             <i class="fas fa-book"></i> Content
                         </a>

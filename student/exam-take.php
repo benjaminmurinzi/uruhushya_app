@@ -29,12 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['exam_id'])) {
         redirect('exams.php');
     }
     
-    // Create exam attempt
+    // Create exam attempt (always 20 questions)
+    $questions_per_exam = 20;
     $create_attempt = "INSERT INTO exam_attempts (user_id, exam_id, total_questions, start_time, status) 
-                       VALUES (?, ?, ?, NOW(), 'in_progress')";
-    db_query($create_attempt, [$user_id, $exam_id, $exam['total_questions']]);
-    
-    $attempt_id = db_last_id();
+                   VALUES (?, ?, ?, NOW(), 'in_progress')";
+    db_query($create_attempt, [$user_id, $exam_id, $questions_per_exam]);
     
     // Log activity
     log_activity($user_id, 'exam_start', 'Started exam: ' . $exam['exam_code']);
@@ -69,7 +68,9 @@ if ($attempt['status'] === 'completed') {
     redirect('exam-results.php?attempt_id=' . $attempt_id);
 }
 
-// Get random questions for this exam
+// Get 20 random questions for this exam (fixed to 20 questions per exam)
+$questions_per_exam = 20;
+
 $questions_sql = "SELECT q.*, 
                   (SELECT choice_id FROM exam_responses WHERE attempt_id = ? AND question_id = q.question_id) as selected_choice
                   FROM questions q
@@ -78,7 +79,7 @@ $questions_sql = "SELECT q.*,
                   ORDER BY RAND()
                   LIMIT ?";
 
-$questions = db_fetch_all($questions_sql, [$attempt_id, $attempt['total_questions']]);
+$questions = db_fetch_all($questions_sql, [$attempt_id, $questions_per_exam]);
 
 // Get current question index
 $current_index = isset($_GET['q']) ? (int)$_GET['q'] : 0;

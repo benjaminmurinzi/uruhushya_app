@@ -19,71 +19,102 @@ if (is_logged_in()) {
 $error = '';
 $success = '';
 
-// Handle form submission
+// Handle registration
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Get form data
     $full_name = clean_input($_POST['full_name'] ?? '');
     $email = clean_input($_POST['email'] ?? '');
     $phone = clean_input($_POST['phone'] ?? '');
     $password = $_POST['password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
     $language = clean_input($_POST['language'] ?? 'kinyarwanda');
-    $agent_code = clean_input($_POST['agent_code'] ?? '');
-    $terms = isset($_POST['terms']);
+    $agent_code = clean_input($_POST['agent_code'] ?? ''); // ADD THIS LINE
     
-    // Validate required fields
+    // Validation
     if (empty($full_name) || empty($email) || empty($phone) || empty($password)) {
-        $error = 'Please fill in all required fields';
+        $error = $lang === 'english' ? 'All fields are required' : 'Byose birakenewe';
+    } elseif (!is_valid_email($email)) {
+        $error = $lang === 'english' ? 'Invalid email address' : 'Email ntiyemewe';
+    } elseif (email_exists($email)) {
+        $error = $lang === 'english' ? 'Email already registered' : 'Email yemeyewe';
+    } elseif (!is_valid_phone($phone)) {
+        $error = $lang === 'english' ? 'Invalid phone number' : 'Numero ntiyemewe';
+    } elseif (strlen($password) < 6) {
+        $error = $lang === 'english' ? 'Password must be at least 6 characters' : 'Ijambo ry\'ibanga rigomba kuba rifite imibare 6';
     } elseif ($password !== $confirm_password) {
-        $error = 'Passwords do not match';
-    } elseif (!$terms) {
-        $error = 'You must accept the terms and conditions';
+        $error = $lang === 'english' ? 'Passwords do not match' : 'Amagambo y\'ibanga ntahuye';
     } else {
-        // Check if agent code is provided
+        // VERIFY AGENT CODE IF PROVIDED
         $agent_id = null;
         if (!empty($agent_code)) {
-            $agent = db_fetch("SELECT agent_id FROM agents WHERE agent_code = ? AND status = 'active'", [$agent_code]);
-            if ($agent) {
-                $agent_id = $agent['agent_id'];
+            $agent = db_fetch(
+                "SELECT user_id, agent_code FROM users WHERE agent_code = ? AND role = 'agent' AND status = 'active'",
+                [$agent_code]
+            );
+            
+            if (!$agent) {
+                $error = $lang === 'english' 
+                    ? 'Invalid agent code. Please check and try again.' 
+                    : 'Kode y\'umuhagarariye ntiyemewe. Reba neza ugerageze.';
             } else {
-                $error = 'Invalid agent code';
+                $agent_id = $agent['user_id'];
             }
         }
         
+        // ONLY PROCEED IF NO ERROR
         if (empty($error)) {
-            // Register student
-            $result = register_student([
-                'full_name' => $full_name,
-                'email' => $email,
-                'phone' => $phone,
-                'password' => $password,
-                'language' => $language,
-                'agent_id' => $agent_id
-            ]);
-            
-            if ($result['success']) {
-                // Send welcome email
-                $subscription = get_user_subscription($result['user_id']);
+            try {
+                // Start transaction
+                db_query("START TRANSACTION");
                 
+                // Create user account
+                $hashed_password = hash_password($password);
+                
+                $insert_user = "INSERT INTO users (full_name, email, phone, password, role, language_preference, status, created_at)
+                               VALUES (?, ?, ?, ?, 'student', ?, 'active', NOW())";
+                
+                db_query($insert_user, [$full_name, $email, $phone, $hashed_password, $language]);
+                $user_id = db_last_id();
+                
+                // CREATE REFERRAL RECORD IF AGENT CODE PROVIDED
+                if ($agent_id) {
+                    $insert_referral = "INSERT INTO referrals 
+                                       (agent_code, agent_id, student_id, status, referral_date, created_at)
+                                       VALUES (?, ?, ?, 'pending', NOW(), NOW())";
+                    
+                    db_query($insert_referral, [$agent_code, $agent_id, $user_id]);
+                    
+                    log_activity($agent_id, 'referral_created', "New referral: {$full_name} (ID: {$user_id})");
+                }
+                
+                // Send welcome email
                 send_template_email(
-                    'student_registration_welcome',
+                    'welcome',
                     $email,
                     $language,
                     [
                         'full_name' => $full_name,
-                        'email' => $email,
-                        'subscription_type' => '1-day trial',
-                        'subscription_end_date' => $subscription ? format_date($subscription['end_date']) : date('Y-m-d', strtotime('+1 day')),
-                        'login_url' => APP_URL . '/login.php'
-                    ]
+                        'login_url' => APP_URL . '/public/login.php'
+                    ],
+                    $user_id
                 );
                 
-                $success = $result['message'];
+                // Commit transaction
+                db_query("COMMIT");
                 
-                // Clear form
-                $full_name = $email = $phone = $agent_code = '';
-            } else {
-                $error = $result['message'];
+                // Log activity
+                log_activity($user_id, 'user_registered', 'New user registration');
+                
+                // Set success message
+                set_flash_message('success', $lang === 'english' 
+                    ? 'Registration successful! Please login.' 
+                    : 'Kwiyandikisha byakunze! Injira.');
+                
+                redirect('login.php');
+                
+            } catch (Exception $e) {
+                db_query("ROLLBACK");
+                $error = $lang === 'english' ? 'Registration failed. Please try again.' : 'Kwiyandikisha byanze. Ongera ugerageze.';
+                error_log("Registration error: " . $e->getMessage());
             }
         }
     }
@@ -359,6 +390,20 @@ $lang = $_GET['lang'] ?? 'kinyarwanda';
                             value="<?php echo htmlspecialchars($phone ?? ''); ?>"
                             required
                         >
+                    </div>
+                    <div class="form-group">
+                        <label for="agent_code">
+                             <i class="fas fa-user-tag"></i> 
+                             <?php echo $lang === 'english' ? 'Agent/Referral Code (Optional)' : 'Kode y\'Umuhagarariye (Ntiyahora)'; ?>
+                        </label>
+                        <input 
+                            type="text" 
+                            class="form-control" 
+                            id="agent_code" 
+                            name="agent_code" 
+                            placeholder="<?php echo $lang === 'english' ? 'e.g., AG001' : 'urugero: AG001'; ?>"
+                            value="<?php echo htmlspecialchars($_GET['ref'] ?? ''); ?>"
+                >
                         <small class="text-muted">
                             <?php echo $lang === 'english' ? 'Format: +250788123456' : 'Imiterere: +250788123456'; ?>
                         </small>
