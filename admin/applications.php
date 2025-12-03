@@ -19,11 +19,11 @@ $lang = $admin['language_preference'] ?? 'english';
 // Get active tab
 $active_tab = isset($_GET['tab']) ? clean_input($_GET['tab']) : 'schools';
 
-// Get school applications
+// Get school applications - FIXED: use school_id
 $school_apps = db_fetch_all(
     "SELECT sa.*, u.full_name, u.email, u.phone, u.created_at as user_created
      FROM school_applications sa
-     JOIN users u ON sa.user_id = u.user_id
+     JOIN users u ON sa.school_id = u.user_id
      ORDER BY 
         CASE sa.status
             WHEN 'pending' THEN 1
@@ -33,11 +33,11 @@ $school_apps = db_fetch_all(
         sa.created_at DESC"
 );
 
-// Get agent applications
+// Get agent applications - FIXED: use agent_id
 $agent_apps = db_fetch_all(
     "SELECT aa.*, u.full_name, u.email, u.phone, u.created_at as user_created
      FROM agent_applications aa
-     JOIN users u ON aa.user_id = u.user_id
+     JOIN users u ON aa.agent_id = u.user_id
      ORDER BY 
         CASE aa.status
             WHEN 'pending' THEN 1
@@ -344,52 +344,65 @@ foreach ($agent_apps as $app) {
 <body>
     <!-- Top Navigation -->
     <nav class="top-nav">
-        <div class="container-fluid">
-            <div class="d-flex justify-content-between align-items-center">
-                <a href="dashboard.php" class="navbar-brand">
-                    <i class="fas fa-shield-alt"></i> <?php echo APP_NAME; ?> - Admin
-                </a>
-                
-                <ul class="nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="dashboard.php">
-                            <i class="fas fa-home"></i> <?php echo $lang === 'english' ? 'Dashboard' : 'Dashboard'; ?>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="users.php">
-                            <i class="fas fa-users"></i> <?php echo $lang === 'english' ? 'Users' : 'Abakoresha'; ?>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="questions.php">
-                            <i class="fas fa-question-circle"></i> <?php echo $lang === 'english' ? 'Questions' : 'Ibibazo'; ?>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="applications.php">
-                            <i class="fas fa-inbox"></i> <?php echo $lang === 'english' ? 'Applications' : 'Amasaba'; ?>
-                            <?php if ($pending_schools + $pending_agents > 0): ?>
-                                <span class="badge badge-warning"><?php echo $pending_schools + $pending_agents; ?></span>
-                            <?php endif; ?>
-                        </a>
-                    </li>
-                </ul>
-                
-                <div class="user-menu dropdown">
-                    <button class="btn dropdown-toggle" type="button" data-toggle="dropdown">
-                        <i class="fas fa-user-shield"></i> <?php echo explode(' ', $admin['full_name'])[0]; ?>
-                    </button>
-                    <div class="dropdown-menu dropdown-menu-right">
-                        <a class="dropdown-item" href="profile.php">Profile</a>
-                        <a class="dropdown-item" href="settings.php">Settings</a>
-                        <div class="dropdown-divider"></div>
-                        <a class="dropdown-item text-danger" href="../public/logout.php">Logout</a>
-                    </div>
+    <div class="container-fluid">
+        <div class="d-flex justify-content-between align-items-center">
+            <a href="dashboard.php" style="color: white; text-decoration: none; font-size: 24px; font-weight: 700;">
+                <i class="fas fa-shield-alt"></i> <?php echo APP_NAME; ?> - Admin
+            </a>
+            
+            <ul class="nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="dashboard.php">
+                        <i class="fas fa-home"></i> Dashboard
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="users.php">
+                        <i class="fas fa-users"></i> <?php echo $lang === 'english' ? 'Users' : 'Abakoresha'; ?>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="questions.php">
+                        <i class="fas fa-question-circle"></i> <?php echo $lang === 'english' ? 'Questions' : 'Ibibazo'; ?>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="applications.php">
+                        <i class="fas fa-inbox"></i> <?php echo $lang === 'english' ? 'Applications' : 'Amasaba'; ?>
+                        <?php if ($pending_schools + $pending_agents > 0): ?>
+                            <span class="badge badge-warning ml-1"><?php echo $pending_schools + $pending_agents; ?></span>
+                        <?php endif; ?>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="payments.php">
+                        <i class="fas fa-credit-card"></i> <?php echo $lang === 'english' ? 'Payments' : 'Kwishyura'; ?>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="agent-payouts.php">
+                        <i class="fas fa-wallet"></i> <?php echo $lang === 'english' ? 'Payouts' : 'Kwishyuza'; ?>
+                    </a>
+                </li>
+            </ul>
+            
+            <div class="dropdown">
+                <button class="btn btn-outline-light dropdown-toggle" type="button" data-toggle="dropdown">
+                    <i class="fas fa-user-shield"></i> System
+                </button>
+                <div class="dropdown-menu dropdown-menu-right">
+                    <a class="dropdown-item" href="settings.php">
+                        <i class="fas fa-cog"></i> <?php echo $lang === 'english' ? 'Settings' : 'Igenamiterere'; ?>
+                    </a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item text-danger" href="../public/logout.php">
+                        <i class="fas fa-sign-out-alt"></i> <?php echo $lang === 'english' ? 'Logout' : 'Sohoka'; ?>
+                    </a>
                 </div>
             </div>
         </div>
-    </nav>
+    </div>
+</nav>
 
     <!-- Main Content -->
     <div class="main-content">

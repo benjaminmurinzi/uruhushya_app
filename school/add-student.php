@@ -11,33 +11,143 @@ require_once '../config/config.php';
 require_once '../includes/auth.php';
 require_once '../includes/email.php';
 
+// ==========================================
+// HELPER FUNCTIONS (Must be before any use)
+// ==========================================
+
+// Flash message functions
+if (!function_exists('has_flash_message')) {
+    function has_flash_message() {
+        return isset($_SESSION['flash_message']);
+    }
+}
+
+if (!function_exists('get_flash_message')) {
+    function get_flash_message() {
+        if (isset($_SESSION['flash_message'])) {
+            $message = $_SESSION['flash_message'];
+            unset($_SESSION['flash_message']);
+            return $message;
+        }
+        return null;
+    }
+}
+
+if (!function_exists('set_flash_message')) {
+    function set_flash_message($type, $message) {
+        $_SESSION['flash_message'] = ['type' => $type, 'message' => $message];
+    }
+}
+
+// Email validation
+if (!function_exists('is_valid_email')) {
+    function is_valid_email($email) {
+        return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
+    }
+}
+
+// Check if email exists in database
+if (!function_exists('email_exists')) {
+    function email_exists($email) {
+        $result = db_fetch("SELECT user_id FROM users WHERE email = ?", [$email]);
+        return $result !== false;
+    }
+}
+
+// Phone validation (Rwanda format: 07XXXXXXXX)
+if (!function_exists('is_valid_phone')) {
+    function is_valid_phone($phone) {
+        // Remove spaces and dashes
+        $phone = preg_replace('/[\s\-]/', '', $phone);
+        // Check if it's 10 digits starting with 07
+        return preg_match('/^07[0-9]{8}$/', $phone);
+    }
+}
+
+// Clean user input
+if (!function_exists('clean_input')) {
+    function clean_input($data) {
+        if (is_array($data)) {
+            return array_map('clean_input', $data);
+        }
+        $data = trim($data);
+        $data = stripslashes($data);
+        $data = htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+        return $data;
+    }
+}
+
+// Hash password
+if (!function_exists('hash_password')) {
+    function hash_password($password) {
+        return password_hash($password, PASSWORD_DEFAULT);
+    }
+}
+
+// Log activity
+if (!function_exists('log_activity')) {
+    function log_activity($user_id, $activity_type, $description, $metadata = []) {
+        $sql = "INSERT INTO activity_log (user_id, activity_type, description, ip_address, user_agent, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, NOW())";
+        
+        $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
+        $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+        $metadata_json = !empty($metadata) ? json_encode($metadata) : null;
+        
+        try {
+            db_query($sql, [
+                $user_id,
+                $activity_type,
+                $description,
+                $ip_address,
+                $user_agent,
+                $metadata_json
+            ]);
+        } catch (Exception $e) {
+            // Log silently fails if activity_log table doesn't exist
+            error_log("Activity log error: " . $e->getMessage());
+        }
+    }
+}
+
+// ==========================================
+// MAIN CODE STARTS HERE
+// ==========================================
+
 // Require school login
 require_role('school');
 
 $school = get_logged_in_user();
 $school_id = get_user_id();
 
-// Get school's subscription to check limits
-$subscription = get_user_subscription($school_id);
+// Get school's subscription
+$subscription = db_fetch(
+    "SELECT * FROM subscriptions 
+     WHERE user_id = ? AND status = 'active' AND end_date >= CURDATE() 
+     ORDER BY created_at DESC LIMIT 1",
+    [$school_id]
+);
 
-// Calculate student limits
+// Set student limit based on subscription
 $student_limit = 0;
 if ($subscription) {
-    switch ($subscription['subscription_type']) {
-        case 'basic':
-            $student_limit = 50;
-            break;
-        case 'standard':
-            $student_limit = 150;
-            break;
-        case 'premium':
-            $student_limit = 999999; // Unlimited
-            break;
+    $sub_type = $subscription['subscription_type'];
+    if ($sub_type == 'basic') {
+        $student_limit = 50;
+    } elseif ($sub_type == 'standard') {
+        $student_limit = 150;
+    } elseif ($sub_type == 'premium') {
+        $student_limit = 999999;
+    } else {
+        $student_limit = 50; // Default
     }
 }
 
 // Get current student count
-$current_students = db_fetch("SELECT COUNT(*) as count FROM school_students WHERE school_id = ? AND status = 'active'", [$school_id])['count'];
+$current_students = db_fetch(
+    "SELECT COUNT(*) as count FROM school_students WHERE school_id = ? AND status = 'active'", 
+    [$school_id]
+)['count'] ?? 0;
 
 $error = '';
 $success = '';
@@ -74,7 +184,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Create student account
             $hashed_password = hash_password($password);
             
-            $insert_user = "INSERT INTO users (full_name, email, phone, password, role, language_preference, status, created_at)
+            // Use password_hash column name
+            $insert_user = "INSERT INTO users (full_name, email, phone, password_hash, role, language_preference, status, created_at)
                            VALUES (?, ?, ?, ?, 'student', ?, 'active', NOW())";
             
             db_query($insert_user, [$full_name, $email, $phone, $hashed_password, $language]);
@@ -86,36 +197,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             db_query($link_student, [$school_id, $student_id]);
             
-            // Create trial subscription for student (7 days free)
-            $trial_end = date('Y-m-d', strtotime('+7 days'));
-            $subscription_sql = "INSERT INTO subscriptions 
-                                (user_id, subscription_type, plan_name, status, start_date, end_date, amount, currency, created_at)
-                                VALUES (?, 'trial', 'School Trial', 'active', CURDATE(), ?, 0, 'RWF', NOW())";
-            
-            db_query($subscription_sql, [$student_id, $trial_end]);
+            // NO TRIAL - Students must subscribe to access full exams
+            // They get 3 free practice quizzes instead
             
             // Log activity
             log_activity($school_id, 'student_added', "Added student: {$full_name} (ID: {$student_id})");
             
             // Send welcome email to student
-            send_template_email(
-                'school_student_welcome',
-                $email,
-                $language,
-                [
-                    'full_name' => $full_name,
-                    'school_name' => $school['full_name'],
-                    'email' => $email,
-                    'password' => $password, // Send in welcome email
-                    'login_url' => APP_URL . '/public/login.php'
-                ],
-                $student_id
-            );
+            try {
+                send_template_email(
+                    'school_student_welcome',
+                    $email,
+                    $language,
+                    [
+                        'full_name' => $full_name,
+                        'school_name' => $school['full_name'],
+                        'email' => $email,
+                        'password' => $password,
+                        'login_url' => APP_URL . '/public/login.php'
+                    ],
+                    $student_id
+                );
+            } catch (Exception $e) {
+                // Email failure shouldn't stop student creation
+                error_log("Email send error: " . $e->getMessage());
+            }
             
             // Commit transaction
             db_query("COMMIT");
             
-            $success = 'Student added successfully! Login credentials have been sent to their email.';
+            $success = 'Student added successfully! Login credentials have been sent to their email. Student has full access to all exams under your school subscription.';
             
             // Clear form
             $_POST = [];
@@ -406,7 +517,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     <div class="alert alert-info">
                         <i class="fas fa-gift"></i> 
-                        <strong>Free Trial:</strong> New students will receive a 7-day free trial automatically!
+                        <strong>Free Trial:</strong> Students added by your school automatically get full access to all exams under your school's subscription plan. No additional payment required from students!
                     </div>
 
                     <div class="text-center mt-4">

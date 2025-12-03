@@ -11,6 +11,33 @@
 require_once '../config/config.php';
 require_once '../includes/auth.php';
 
+// Flash message helper functions (inline definition)
+if (!function_exists('has_flash_message')) {
+    function has_flash_message() {
+        return isset($_SESSION['flash_message']);
+    }
+}
+
+if (!function_exists('get_flash_message')) {
+    function get_flash_message() {
+        if (isset($_SESSION['flash_message'])) {
+            $message = $_SESSION['flash_message'];
+            unset($_SESSION['flash_message']);
+            return $message;
+        }
+        return null;
+    }
+}
+
+if (!function_exists('set_flash_message')) {
+    function set_flash_message($type, $message) {
+        $_SESSION['flash_message'] = ['type' => $type, 'message' => $message];
+    }
+}
+
+// Require school login
+require_role('school');
+
 
 // Require school login
 require_role('school');

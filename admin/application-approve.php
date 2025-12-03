@@ -11,6 +11,28 @@ require_once '../config/config.php';
 require_once '../includes/auth.php';
 require_once '../includes/email.php';
 
+// Helper functions
+if (!function_exists('clean_input')) {
+    function clean_input($data) {
+        $data = trim($data);
+        $data = stripslashes($data);
+        $data = htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+        return $data;
+    }
+}
+
+if (!function_exists('log_activity')) {
+    function log_activity($user_id, $activity_type, $description) {
+        try {
+            $sql = "INSERT INTO activity_log (user_id, activity_type, description, created_at)
+                    VALUES (?, ?, ?, NOW())";
+            db_query($sql, [$user_id, $activity_type, $description]);
+        } catch (Exception $e) {
+            error_log("Activity log error: " . $e->getMessage());
+        }
+    }
+}
+
 // Set JSON header
 header('Content-Type: application/json');
 
@@ -36,11 +58,11 @@ try {
     db_query("START TRANSACTION");
     
     if ($type === 'school') {
-        // Get school application
+        // Get school application - FIXED: use school_id
         $app = db_fetch(
-            "SELECT sa.*, u.email, u.full_name, u.language_preference 
+            "SELECT sa.*, u.user_id, u.email, u.full_name, u.language_preference 
              FROM school_applications sa 
-             JOIN users u ON sa.user_id = u.user_id 
+             JOIN users u ON sa.school_id = u.user_id 
              WHERE sa.application_id = ?",
             [$application_id]
         );
@@ -53,60 +75,51 @@ try {
             throw new Exception('Application already processed');
         }
         
-        // Generate school code if not exists
-        $school_code = $app['school_code'];
-        if (empty($school_code)) {
-            // Generate unique school code: SCH + timestamp + random
-            $school_code = 'SCH' . time() . rand(100, 999);
-        }
-        
         // Update application status
         $update_app = "UPDATE school_applications 
-                       SET status = 'approved', 
-                           school_code = ?,
-                           approved_by = ?,
-                           approved_at = NOW(),
-                           updated_at = NOW()
+                       SET status = 'approved'
                        WHERE application_id = ?";
         
-        db_query($update_app, [$school_code, $admin_id, $application_id]);
+        db_query($update_app, [$application_id]);
         
-        // Update user role to school
-        $update_user = "UPDATE users SET role = 'school', updated_at = NOW() WHERE user_id = ?";
+        // Update user status to active
+        $update_user = "UPDATE users SET status = 'active' WHERE user_id = ?";
         db_query($update_user, [$app['user_id']]);
         
-        // Grant 30-day subscription
+        // Grant 30-day trial subscription
         $subscription_sql = "INSERT INTO subscriptions 
-                            (user_id, subscription_type, status, start_date, end_date, amount, currency, created_at)
-                            VALUES (?, 'monthly', 'active', CURDATE(), DATE_ADD(CURDATE(), INTERVAL 30 DAY), 0, 'RWF', NOW())";
+                            (user_id, subscription_type, status, start_date, end_date, amount, created_at)
+                            VALUES (?, 'basic', 'active', CURDATE(), DATE_ADD(CURDATE(), INTERVAL 30 DAY), 50000, NOW())";
         
         db_query($subscription_sql, [$app['user_id']]);
         
         // Log activity
-        log_activity($admin_id, 'school_approved', "Approved school application: {$app['school_name']} (Code: {$school_code})");
+        log_activity($admin_id, 'school_approved', "Approved school: {$app['school_name']}");
         
-        // Send approval email
-        $lang = $app['language_preference'] ?? 'english';
-        
-        send_template_email(
-            'school_application_approved',
-            $app['email'],
-            $lang,
-            [
-                'full_name' => $app['full_name'],
-                'school_name' => $app['school_name'],
-                'school_code' => $school_code,
-                'login_url' => APP_URL . '/login.php'
-            ],
-            $app['user_id']
-        );
+        // Send approval email (if email template exists)
+        try {
+            send_template_email(
+                'school_application_approved',
+                $app['email'],
+                $app['language_preference'] ?? 'english',
+                [
+                    'full_name' => $app['full_name'],
+                    'school_name' => $app['school_name'],
+                    'login_url' => APP_URL . '/public/login.php'
+                ],
+                $app['user_id']
+            );
+        } catch (Exception $e) {
+            // Email error shouldn't stop approval
+            error_log("Email error: " . $e->getMessage());
+        }
         
     } else { // agent
-        // Get agent application
+        // Get agent application - FIXED: use agent_id
         $app = db_fetch(
-            "SELECT aa.*, u.email, u.full_name, u.language_preference 
+            "SELECT aa.*, u.user_id, u.email, u.full_name, u.language_preference 
              FROM agent_applications aa 
-             JOIN users u ON aa.user_id = u.user_id 
+             JOIN users u ON aa.agent_id = u.user_id 
              WHERE aa.application_id = ?",
             [$application_id]
         );
@@ -119,54 +132,38 @@ try {
             throw new Exception('Application already processed');
         }
         
-        // Generate agent code if not exists
-        $agent_code = $app['agent_code'];
-        if (empty($agent_code)) {
-            // Generate unique agent code: AG + 3 digit number
-            $last_agent = db_fetch("SELECT agent_code FROM agent_applications WHERE agent_code IS NOT NULL ORDER BY application_id DESC LIMIT 1");
-            
-            if ($last_agent && preg_match('/AG(\d+)/', $last_agent['agent_code'], $matches)) {
-                $next_num = (int)$matches[1] + 1;
-            } else {
-                $next_num = 1;
-            }
-            
-            $agent_code = 'AG' . str_pad($next_num, 3, '0', STR_PAD_LEFT);
-        }
-        
         // Update application status
         $update_app = "UPDATE agent_applications 
-                       SET status = 'approved', 
-                           agent_code = ?,
-                           approved_by = ?,
-                           approved_at = NOW(),
-                           updated_at = NOW()
+                       SET status = 'approved'
                        WHERE application_id = ?";
         
-        db_query($update_app, [$agent_code, $admin_id, $application_id]);
+        db_query($update_app, [$application_id]);
         
-        // Update user role to agent
-        $update_user = "UPDATE users SET role = 'agent', agent_code = ?, updated_at = NOW() WHERE user_id = ?";
-        db_query($update_user, [$agent_code, $app['user_id']]);
+        // Update user status to active
+        $update_user = "UPDATE users SET status = 'active' WHERE user_id = ?";
+        db_query($update_user, [$app['user_id']]);
         
         // Log activity
-        log_activity($admin_id, 'agent_approved', "Approved agent application: {$app['full_name']} (Code: {$agent_code})");
+        log_activity($admin_id, 'agent_approved', "Approved agent: {$app['full_name']} (Code: {$app['agent_code']})");
         
-        // Send approval email
-        $lang = $app['language_preference'] ?? 'english';
-        
-        send_template_email(
-            'agent_application_approved',
-            $app['email'],
-            $lang,
-            [
-                'full_name' => $app['full_name'],
-                'agent_code' => $agent_code,
-                'commission_rate' => '10%',
-                'login_url' => APP_URL . '/login.php'
-            ],
-            $app['user_id']
-        );
+        // Send approval email (if email template exists)
+        try {
+            send_template_email(
+                'agent_application_approved',
+                $app['email'],
+                $app['language_preference'] ?? 'english',
+                [
+                    'full_name' => $app['full_name'],
+                    'agent_code' => $app['agent_code'],
+                    'commission_rate' => '10%',
+                    'login_url' => APP_URL . '/public/login.php'
+                ],
+                $app['user_id']
+            );
+        } catch (Exception $e) {
+            // Email error shouldn't stop approval
+            error_log("Email error: " . $e->getMessage());
+        }
     }
     
     // Commit transaction
@@ -174,7 +171,7 @@ try {
     
     echo json_encode([
         'success' => true,
-        'message' => ucfirst($type) . ' application approved successfully'
+        'message' => ucfirst($type) . ' application approved successfully!'
     ]);
     
 } catch (Exception $e) {

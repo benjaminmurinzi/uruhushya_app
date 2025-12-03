@@ -8,6 +8,98 @@
  * Developer: Benjamin NIYOMURINZI
  */
 
+
+require_once '../config/config.php';
+require_once '../includes/auth.php';
+
+// Flash message helper functions (inline definition)
+if (!function_exists('has_flash_message')) {
+    function has_flash_message() {
+        return isset($_SESSION['flash_message']);
+    }
+}
+
+if (!function_exists('get_flash_message')) {
+    function get_flash_message() {
+        if (isset($_SESSION['flash_message'])) {
+            $message = $_SESSION['flash_message'];
+            unset($_SESSION['flash_message']);
+            return $message;
+        }
+        return null;
+    }
+}
+
+if (!function_exists('set_flash_message')) {
+    function set_flash_message($type, $message) {
+        $_SESSION['flash_message'] = ['type' => $type, 'message' => $message];
+    }
+}
+
+// Require agent login
+require_role('agent');
+
+$agent = get_logged_in_user();
+$agent_id = get_user_id();
+
+// Get or generate agent code
+$agent_code = $agent['agent_code'] ?? null;
+
+if (empty($agent_code)) {
+    // Generate agent code if not exists
+    $agent_code = 'AG' . str_pad($agent_id, 3, '0', STR_PAD_LEFT);
+    
+    // Update database
+    db_query("UPDATE users SET agent_code = ? WHERE user_id = ?", [$agent_code, $agent_id]);
+    
+    // Update session variable
+    $agent['agent_code'] = $agent_code;
+}
+
+// Get agent statistics
+$stats = [
+    'total_referrals' => db_fetch(
+        "SELECT COUNT(*) as count FROM referrals WHERE agent_id = ?", 
+        [$agent_id]
+    )['count'] ?? 0,
+    
+    'active_referrals' => db_fetch(
+        "SELECT COUNT(*) as count FROM referrals WHERE agent_id = ? AND status = 'active'", 
+        [$agent_id]
+    )['count'] ?? 0,
+    
+    'total_earnings' => db_fetch(
+        "SELECT COALESCE(SUM(commission_amount), 0) as total FROM referrals WHERE agent_id = ?", 
+        [$agent_id]
+    )['total'] ?? 0,
+    
+    'pending_earnings' => db_fetch(
+        "SELECT COALESCE(SUM(commission_amount), 0) as total FROM referrals WHERE agent_id = ? AND commission_paid = 0 AND status = 'active'", 
+        [$agent_id]
+    )['total'] ?? 0,
+    
+    'paid_earnings' => db_fetch(
+        "SELECT COALESCE(SUM(commission_amount), 0) as total FROM referrals WHERE agent_id = ? AND commission_paid = 1", 
+        [$agent_id]
+    )['total'] ?? 0
+];
+
+// Commission rate (10%)
+$commission_rate = 10;
+
+// Get recent referrals
+$recent_referrals = db_fetch_all(
+    "SELECT r.*, u.full_name, u.email, s.amount as subscription_amount
+     FROM referrals r
+     JOIN users u ON r.student_id = u.user_id
+     LEFT JOIN subscriptions s ON r.subscription_id = s.subscription_id
+     WHERE r.agent_id = ?
+     ORDER BY r.referral_date DESC
+     LIMIT 10",
+    [$agent_id]
+);
+
+
 require_once '../config/config.php';
 require_once '../includes/auth.php';
 
@@ -16,7 +108,19 @@ require_role('agent');
 
 $agent = get_logged_in_user();
 $agent_id = get_user_id();
-$agent_code = $agent['agent_code'];
+// Get or generate agent code
+$agent_code = $agent['agent_code'] ?? null;
+
+if (empty($agent_code)) {
+    // Generate agent code if not exists
+    $agent_code = 'AG' . str_pad($agent_id, 3, '0', STR_PAD_LEFT);
+    
+    // Update database
+    db_query("UPDATE users SET agent_code = ? WHERE user_id = ?", [$agent_code, $agent_id]);
+    
+    // Update session
+    $agent['agent_code'] = $agent_code;
+}
 
 // Get agent statistics
 $stats = [
@@ -24,7 +128,7 @@ $stats = [
     'active_referrals' => db_fetch("SELECT COUNT(*) as count FROM referrals WHERE agent_id = ? AND status = 'active'", [$agent_id])['count'],
     'total_earnings' => db_fetch("SELECT COALESCE(SUM(commission_amount), 0) as total FROM referrals WHERE agent_id = ?", [$agent_id])['total'],
     'pending_earnings' => db_fetch("SELECT COALESCE(SUM(commission_amount), 0) as total FROM referrals WHERE agent_id = ? AND commission_paid = 0 AND status = 'active'", [$agent_id])['total'],
-    'paid_earnings' => db_fetch("SELECT COALESCE(SUM(commission_amount), 0) as total FROM referrals WHERE agent_id = ? AND commission_paid = 1", [$agent_id])['paid']
+    'paid_earnings' => db_fetch("SELECT COALESCE(SUM(commission_amount), 0) as total FROM referrals WHERE agent_id = ? AND commission_paid = 1", [$agent_id])['total'] ?? 0
 ];
 
 // Get recent referrals
